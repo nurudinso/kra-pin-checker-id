@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KRA PIN Checker by ID</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 420px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      color: #1a1a1a;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+    }
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 0.35rem;
+      color: #444;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+    }
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.15);
+    }
+    select {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      background: #fff;
+    }
+    button {
+      width: 100%;
+      padding: 0.65rem 1rem;
+      font-size: 1rem;
+      font-weight: 500;
+      color: #fff;
+      background: #0d6efd;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover { background: #0b5ed7; }
+    button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+    #result {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #result.success {
+      background: #d1e7dd;
+      color: #0a3622;
+      border: 1px solid #a3cfbb;
+    }
+    #result.error {
+      background: #f8d7da;
+      color: #58151c;
+      border: 1px solid #f1aeb5;
+    }
+    #result.info {
+      background: #e7f1ff;
+      color: #084298;
+      border: 1px solid #b6d4fe;
+    }
+    .pin-value {
+      font-weight: 600;
+      font-size: 1.1rem;
+    }
+    .pin-name {
+      margin-top: 0.5rem;
+      font-size: 0.95rem;
+      color: #444;
+    }
+  </style>
+</head>
+<body>
+  <div id="wrong-origin" style="display:none; background:#f8d7da; color:#58151c; padding:0.75rem 1rem; margin-bottom:1rem; border-radius:6px; font-size:0.9rem;">
+    Open this page at <strong>http://localhost:3000</strong> (run <code>node server.js</code> in the project folder first). Do not open the HTML file directly.
+  </div>
+  <h1>KRA PIN Checker by ID</h1>
+  <form id="form">
+    <label for="id">ID (National ID / Business Reg No)</label>
+    <input type="text" id="id" name="id" placeholder="e.g. 12345678" required autocomplete="off">
+    <label for="type">Type</label>
+    <select id="type" name="type">
+      <option value="INDIVIDUAL">Individual</option>
+      <option value="NONINDIVIDUAL">Non-Individual (Company)</option>
+    </select>
+    <button type="submit" id="btn" style="margin-top:1rem;">Get PIN</button>
+  </form>
+  <div id="result" role="status" aria-live="polite"></div>
+
+  <script>
+    const form = document.getElementById('form');
+    const idInput = document.getElementById('id');
+    const btn = document.getElementById('btn');
+    const result = document.getElementById('result');
+
+    function showResult(html, type) {
+      result.innerHTML = html;
+      result.className = type || 'info';
+      result.hidden = false;
+    }
+
+    (function () {
+      const isFile = window.location.protocol === 'file:';
+      const isLocalhost = /^https?:\/\/localhost(:\d+)?$/.test(window.location.origin) || /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(window.location.origin);
+      if (isFile || !isLocalhost) document.getElementById('wrong-origin').style.display = 'block';
+    })();
+
+    const typeSelect = document.getElementById('type');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const taxpayerId = idInput.value.trim();
+      if (!taxpayerId) return;
+
+      btn.disabled = true;
+      showResult('Checking…', 'info');
+
+      try {
+        const res = await fetch('/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taxpayerId, taxpayerType: typeSelect.value }),
+        });
+        const json = await res.json();
+
+        if (!json.ok && json.error) {
+          const detail = json.detail ? '<br><small>' + escapeHtml(String(json.detail)) + '</small>' : '';
+          showResult(escapeHtml(json.error) + detail, 'error');
+          return;
+        }
+
+        const d = json.data;
+        const errMsg = d && (d.ErrorMessage || d.errorMessage || (d.status !== 'SUCCESS' && d.message));
+        if (errMsg) {
+          showResult(escapeHtml(String(errMsg)), 'error');
+        } else if (d && (d.pin != null || d.TaxpayerPIN != null || d.PIN != null)) {
+          const pin = d.pin ?? d.TaxpayerPIN ?? d.PIN;
+          const name = (d.taxpayerName ?? d.TaxpayerName) != null ? '<div class="pin-name">' + escapeHtml(String(d.taxpayerName ?? d.TaxpayerName)) + '</div>' : '';
+          showResult('<div class="pin-value">PIN: ' + escapeHtml(String(pin)) + '</div>' + name, 'success');
+        } else if (d && typeof d === 'object') {
+          showResult('Response:\n' + JSON.stringify(d, null, 2), 'success');
+        } else {
+          showResult(JSON.stringify(json, null, 2), json.ok ? 'success' : 'error');
+        }
+      } catch (err) {
+        let msg = 'Request failed: ' + err.message;
+        if (err.message === 'Failed to fetch' || err.message === 'fetch failed') {
+          msg += '<br><br>• Use <strong>http://localhost:3000</strong> (run <code>node server.js</code> first). Do not open the HTML file directly.<br>• If the server is running, the KRA API call may be failing (wrong URL, network, or SSL). Check the terminal for details.';
+        }
+        showResult(msg, 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
